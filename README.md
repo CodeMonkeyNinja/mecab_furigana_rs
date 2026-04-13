@@ -7,3 +7,7 @@ This tool converts Japanese text to a Kakasi-like format by identifying kanji an
 Note that due to past problems I've hade with [Kakasi](https://github.com/HidekiAI/kakasi) to integrate it as `lib`, for MeCab, I will assume to have the users preinstall the CLI version (alongside with the dicts) as prerequisite for their target platform;
 
 On the average, the whole furigana'ization takes about 5ms on Debian.
+
+## LICENSE
+- Kakasi is licensed under GPLv2
+- MeCab is licensed under BSD
