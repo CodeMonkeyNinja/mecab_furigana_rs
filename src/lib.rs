@@ -43,6 +43,23 @@ const MECAB_DICT_PATHS: &[&str] = &[
 
 // ── Public types ───────────────────────────────────────────────────────────
 
+/// A single morpheme (word/token) from MeCab's analysis.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Morpheme {
+    /// Surface form as it appears in the text (e.g. `"知ら"`).
+    pub surface: String,
+    /// Hiragana reading, empty if unavailable (e.g. `"しら"`).
+    pub reading: String,
+    /// Hepburn romaji (e.g. `"shira"`).
+    pub romaji: String,
+    /// Dictionary/base form — the lemma (e.g. `"知る"` for surface `"知ら"`).
+    pub base_form: String,
+    /// Part of speech (e.g. `"動詞"`, `"名詞"`, `"助詞"`).
+    pub pos: String,
+    /// POS sub-category (e.g. `"自立"`, `"一般"`, `"格助詞"`).
+    pub pos_detail: String,
+}
+
 /// Result of furigana/romaji annotation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FuriganaResult {
@@ -52,6 +69,9 @@ pub struct FuriganaResult {
     /// Hepburn romaji derived from MeCab's katakana readings.
     /// Example: `"shira nai tenjou da"`
     pub romaji: String,
+    /// Per-morpheme breakdown with readings, POS, and base forms.
+    /// Provides word boundaries (segmentation) and dictionary lookup keys.
+    pub morphemes: Vec<Morpheme>,
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -65,8 +85,8 @@ pub fn annotate(text: &str) -> Option<FuriganaResult> {
     if text.is_empty() {
         return None;
     }
-    let (furigana, romaji) = mecab_analyze(text)?;
-    Some(FuriganaResult { furigana, romaji })
+    let (furigana, romaji, morphemes) = mecab_analyze(text)?;
+    Some(FuriganaResult { furigana, romaji, morphemes })
 }
 
 /// Annotate text, returning furigana only (skips romaji generation cost).
@@ -77,8 +97,8 @@ pub fn annotate_furigana_only(text: &str) -> Option<FuriganaResult> {
     if text.is_empty() {
         return None;
     }
-    let (furigana, _) = mecab_analyze(text)?;
-    Some(FuriganaResult { furigana, romaji: String::new() })
+    let (furigana, _, morphemes) = mecab_analyze(text)?;
+    Some(FuriganaResult { furigana, romaji: String::new(), morphemes })
 }
 
 /// Find the first existing MeCab UTF-8 dictionary directory, or `None`.
@@ -181,7 +201,7 @@ pub fn kata_to_romaji(s: &str) -> String {
     out
 }
 
-/// Parse raw MeCab stdout into (furigana, romaji).
+/// Parse raw MeCab stdout into (furigana, romaji, morphemes).
 ///
 /// Pure function — no I/O.  Useful for testing with synthetic MeCab output
 /// without needing the MeCab binary or dictionary installed.
@@ -189,9 +209,10 @@ pub fn kata_to_romaji(s: &str) -> String {
 /// Each non-EOS line is `surface\tPOS,sub1,sub2,sub3,conj_type,conj_form,base,reading,pronunciation`.
 /// Kanji surfaces get bracketed hiragana: `天井[てんじょう]`.
 /// Romaji is derived from the katakana reading field.
-pub fn parse_mecab_output(stdout: &str) -> Option<(String, String)> {
+pub fn parse_mecab_output(stdout: &str) -> Option<(String, String, Vec<Morpheme>)> {
     let mut furigana = String::new();
     let mut romaji_parts: Vec<String> = Vec::new();
+    let mut morphemes = Vec::new();
 
     for line in stdout.lines() {
         if line == "EOS" || line.is_empty() {
@@ -202,16 +223,36 @@ pub fn parse_mecab_output(stdout: &str) -> Option<(String, String)> {
         let features = parts.next().unwrap_or("");
         let fields: Vec<&str> = features.split(',').collect();
 
-        // Reading is field index 7 (0-based), in katakana.
+        // MeCab field indices (0-based within the comma-separated feature string):
+        //   0=POS  1=sub1  2=sub2  3=sub3  4=conj_type  5=conj_form  6=base  7=reading  8=pronunciation
+        let pos = fields.first().copied().unwrap_or("*").to_string();
+        let pos_detail = fields.get(1).copied().unwrap_or("*").to_string();
+        let base_form = if fields.len() > 6 && fields[6] != "*" {
+            fields[6].to_string()
+        } else {
+            surface.to_string()
+        };
+
         let reading_kata = if fields.len() > 7 && fields[7] != "*" {
             fields[7]
         } else {
             ""
         };
 
+        let reading_hira = if !reading_kata.is_empty() {
+            kata_to_hira(reading_kata)
+        } else {
+            String::new()
+        };
+
+        let romaji = if !reading_kata.is_empty() {
+            kata_to_romaji(reading_kata)
+        } else {
+            surface.to_string()
+        };
+
         // Furigana: annotate kanji with hiragana reading
         if has_kanji(surface) && !reading_kata.is_empty() {
-            let reading_hira = kata_to_hira(reading_kata);
             furigana.push_str(surface);
             furigana.push('[');
             furigana.push_str(&reading_hira);
@@ -220,13 +261,16 @@ pub fn parse_mecab_output(stdout: &str) -> Option<(String, String)> {
             furigana.push_str(surface);
         }
 
-        // Romaji: convert katakana reading (or surface if no reading)
-        if !reading_kata.is_empty() {
-            romaji_parts.push(kata_to_romaji(reading_kata));
-        } else {
-            // Surface is likely punctuation or already latin
-            romaji_parts.push(surface.to_string());
-        }
+        romaji_parts.push(romaji.clone());
+
+        morphemes.push(Morpheme {
+            surface: surface.to_string(),
+            reading: reading_hira,
+            romaji,
+            base_form,
+            pos,
+            pos_detail,
+        });
     }
 
     if furigana.is_empty() {
@@ -236,14 +280,14 @@ pub fn parse_mecab_output(stdout: &str) -> Option<(String, String)> {
             .replace("  ", " ")
             .trim()
             .to_string();
-        Some((furigana, romaji))
+        Some((furigana, romaji, morphemes))
     }
 }
 
 // ── MeCab invocation (Linux only) ──────────────────────────────────────────
 
 #[cfg(target_os = "linux")]
-fn mecab_analyze(text: &str) -> Option<(String, String)> {
+fn mecab_analyze(text: &str) -> Option<(String, String, Vec<Morpheme>)> {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
@@ -271,7 +315,7 @@ fn mecab_analyze(text: &str) -> Option<(String, String)> {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn mecab_analyze(_text: &str) -> Option<(String, String)> {
+fn mecab_analyze(_text: &str) -> Option<(String, String, Vec<Morpheme>)> {
     None
 }
 
@@ -490,7 +534,7 @@ EOS
 
     #[test]
     fn test_furigana_brackets_kanji_only() {
-        let (furigana, _) = parse_mecab_output(MECAB_SHIRANAI_TENJOU).unwrap();
+        let (furigana, _, _) = parse_mecab_output(MECAB_SHIRANAI_TENJOU).unwrap();
         assert!(furigana.contains("知ら[しら]"), "got: {furigana}");
         assert!(furigana.contains("天井[てんじょう]"), "got: {furigana}");
         assert!(!furigana.contains("ない["), "kana should not be bracketed: {furigana}");
@@ -499,13 +543,13 @@ EOS
 
     #[test]
     fn test_furigana_full_sentence() {
-        let (furigana, _) = parse_mecab_output(MECAB_SHIRANAI_TENJOU).unwrap();
+        let (furigana, _, _) = parse_mecab_output(MECAB_SHIRANAI_TENJOU).unwrap();
         assert_eq!(furigana, "知ら[しら]ない天井[てんじょう]だ");
     }
 
     #[test]
     fn test_romaji_from_mecab_morphemes() {
-        let (_, romaji) = parse_mecab_output(MECAB_SHIRANAI_TENJOU).unwrap();
+        let (_, romaji, _) = parse_mecab_output(MECAB_SHIRANAI_TENJOU).unwrap();
         assert!(romaji.contains("shira"), "got: {romaji}");
         assert!(romaji.contains("nai"), "got: {romaji}");
         assert!(romaji.contains("tenjou"), "got: {romaji}");
@@ -532,7 +576,7 @@ EOS
 
     #[test]
     fn test_furigana_manga_sentence() {
-        let (furigana, _) = parse_mecab_output(MECAB_MANGA).unwrap();
+        let (furigana, _, _) = parse_mecab_output(MECAB_MANGA).unwrap();
         assert!(furigana.contains("最初[さいしょ]"), "got: {furigana}");
         assert!(furigana.contains("仲間[なかま]"), "got: {furigana}");
         assert!(furigana.contains("背中[せなか]"), "got: {furigana}");
@@ -543,7 +587,7 @@ EOS
 
     #[test]
     fn test_romaji_manga_sentence() {
-        let (_, romaji) = parse_mecab_output(MECAB_MANGA).unwrap();
+        let (_, romaji, _) = parse_mecab_output(MECAB_MANGA).unwrap();
         assert!(romaji.contains("saisho"), "got: {romaji}");
         assert!(romaji.contains("nakama"), "got: {romaji}");
         assert!(romaji.contains("senaka"), "got: {romaji}");
@@ -558,7 +602,7 @@ EOS
     #[test]
     fn test_parse_no_reading_field() {
         let output = "hello\t記号,一般,*,*,*,*\nEOS\n";
-        let (furigana, _) = parse_mecab_output(output).unwrap();
+        let (furigana, _, _) = parse_mecab_output(output).unwrap();
         assert_eq!(furigana, "hello");
     }
 
@@ -580,6 +624,68 @@ EOS
         assert_eq!(kata_to_hira("ABC"), "ABC");
     }
 
+    // ── Morpheme extraction ───────────────────────────────────────────
+
+    #[test]
+    fn test_morphemes_base_form_and_pos() {
+        let (_, _, morphemes) = parse_mecab_output(MECAB_SHIRANAI_TENJOU).unwrap();
+        assert_eq!(morphemes.len(), 4);
+
+        assert_eq!(morphemes[0].surface, "知ら");
+        assert_eq!(morphemes[0].base_form, "知る");
+        assert_eq!(morphemes[0].pos, "動詞");
+        assert_eq!(morphemes[0].reading, "しら");
+
+        assert_eq!(morphemes[2].surface, "天井");
+        assert_eq!(morphemes[2].base_form, "天井");
+        assert_eq!(morphemes[2].pos, "名詞");
+        assert_eq!(morphemes[2].romaji, "tenjou");
+    }
+
+    #[test]
+    fn test_morphemes_manga_sentence() {
+        let (_, _, morphemes) = parse_mecab_output(MECAB_MANGA).unwrap();
+        // "守っ" should have base form "守る"
+        let mamot = morphemes.iter().find(|m| m.surface == "守っ").unwrap();
+        assert_eq!(mamot.base_form, "守る");
+        assert_eq!(mamot.pos, "動詞");
+        // "なっ" should have base form "なる"
+        let nat = morphemes.iter().find(|m| m.surface == "なっ").unwrap();
+        assert_eq!(nat.base_form, "なる");
+    }
+
+    // ── Word segmentation (すもももももももものうち) ────────────────────
+
+    /// Simulate MeCab output for the classic segmentation example.
+    /// "すもももももももものうち" = "Plums and peaches are both types of peaches"
+    const MECAB_SUMOMO: &str = "\
+すもも\t名詞,一般,*,*,*,*,すもも,スモモ,スモモ
+も\t助詞,係助詞,*,*,*,*,も,モ,モ
+もも\t名詞,一般,*,*,*,*,もも,モモ,モモ
+も\t助詞,係助詞,*,*,*,*,も,モ,モ
+もも\t名詞,一般,*,*,*,*,もも,モモ,モモ
+の\t助詞,連体化,*,*,*,*,の,ノ,ノ
+うち\t名詞,非自立,副詞可能,*,*,*,うち,ウチ,ウチ
+EOS
+";
+
+    #[test]
+    fn test_segmentation_sumomo() {
+        let (_, _, morphemes) = parse_mecab_output(MECAB_SUMOMO).unwrap();
+        let surfaces: Vec<&str> = morphemes.iter().map(|m| m.surface.as_str()).collect();
+        assert_eq!(surfaces, &["すもも", "も", "もも", "も", "もも", "の", "うち"]);
+    }
+
+    #[test]
+    fn test_segmentation_sumomo_pos() {
+        let (_, _, morphemes) = parse_mecab_output(MECAB_SUMOMO).unwrap();
+        assert_eq!(morphemes[0].pos, "名詞");  // すもも = noun (plum)
+        assert_eq!(morphemes[1].pos, "助詞");  // も = particle (also)
+        assert_eq!(morphemes[2].pos, "名詞");  // もも = noun (peach)
+        assert_eq!(morphemes[5].pos, "助詞");  // の = particle (of)
+        assert_eq!(morphemes[6].surface, "うち");
+    }
+
     // ── Integration (requires MeCab + dictionary) ───────────────────────
 
     #[test]
@@ -587,6 +693,7 @@ EOS
         if let Some(result) = annotate("食べる") {
             assert!(!result.furigana.is_empty(), "furigana should be set");
             assert!(!result.romaji.is_empty(), "romaji should be set");
+            assert!(!result.morphemes.is_empty(), "morphemes should be populated");
         }
     }
 
@@ -595,6 +702,17 @@ EOS
         if let Some(result) = annotate_furigana_only("食べる") {
             assert!(!result.furigana.is_empty(), "furigana should be set");
             assert!(result.romaji.is_empty(), "romaji should be empty");
+            assert!(!result.morphemes.is_empty(), "morphemes should still be populated");
+        }
+    }
+
+    #[test]
+    fn test_annotate_sumomo_segmentation() {
+        // Integration test: MeCab segments the ambiguous すもももももももものうち
+        if let Some(result) = annotate("すもももももももものうち") {
+            let surfaces: Vec<&str> = result.morphemes.iter().map(|m| m.surface.as_str()).collect();
+            assert_eq!(surfaces, &["すもも", "も", "もも", "も", "もも", "の", "うち"],
+                "MeCab should segment into: すもも/も/もも/も/もも/の/うち, got: {surfaces:?}");
         }
     }
 

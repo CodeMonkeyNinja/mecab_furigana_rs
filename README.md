@@ -14,12 +14,39 @@ assert_eq!(result.furigana, "知ら[しら]ない天井[てんじょう]だ");
 assert!(result.romaji.contains("tenjou"));
 ```
 
+### Word segmentation
+
+MeCab segments ambiguous kana strings into individual morphemes.  The classic
+example `すもももももももものうち` ("plums and peaches are both types of peach")
+becomes:
+
+```rust
+let result = mecab_furigana_rs::annotate("すもももももももものうち").unwrap();
+let words: Vec<&str> = result.morphemes.iter().map(|m| m.surface.as_str()).collect();
+assert_eq!(words, &["すもも", "も", "もも", "も", "もも", "の", "うち"]);
+```
+
+### Morpheme data
+
+Each `Morpheme` includes surface, reading, romaji, dictionary base form, and POS:
+
+```rust
+let result = mecab_furigana_rs::annotate("知らない天井だ").unwrap();
+let m = &result.morphemes[0];
+assert_eq!(m.surface,   "知ら");   // as it appears in text
+assert_eq!(m.reading,   "しら");   // hiragana reading
+assert_eq!(m.romaji,    "shira");  // Hepburn romaji
+assert_eq!(m.base_form, "知る");   // dictionary/lemma form
+assert_eq!(m.pos,       "動詞");   // part of speech
+```
+
 ### Furigana only (skip romaji)
 
 ```rust
 let result = mecab_furigana_rs::annotate_furigana_only("食べる").unwrap();
 // result.furigana = "食[た]べる"
 // result.romaji = "" (empty)
+// result.morphemes is still populated
 ```
 
 ### Pure helpers (no MeCab required)
@@ -35,7 +62,7 @@ assert_eq!(mecab_furigana_rs::kata_to_hira("テンジョウ"), "てんじょう"
 assert!(mecab_furigana_rs::has_kanji("天井"));
 
 // Parse raw MeCab output (for testing or custom pipelines)
-let (furigana, romaji) = mecab_furigana_rs::parse_mecab_output(mecab_stdout).unwrap();
+let (furigana, romaji, morphemes) = mecab_furigana_rs::parse_mecab_output(mecab_stdout).unwrap();
 ```
 
 ## Prerequisites
