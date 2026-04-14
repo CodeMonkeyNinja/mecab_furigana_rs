@@ -21,12 +21,17 @@
 //! sudo apt install mecab mecab-naist-jdic
 //! ```
 //!
-//! The crate auto-discovers the dictionary from standard system paths.
+//! The crate auto-discovers the dictionary from standard Linux system paths.
+//! For Homebrew or custom installs, set `MECAB_DICT_DIR`:
+//!
+//! ```bash
+//! export MECAB_DICT_DIR=/opt/homebrew/lib/mecab/dic/ipadic
+//! ```
 //!
 //! # Platform support
 //!
-//! Full functionality on Linux.  On other platforms, [`annotate`] returns `None`
-//! (the pure conversion helpers like [`kata_to_romaji`] work everywhere).
+//! Works on any platform where `mecab` is on `$PATH` and a dictionary is
+//! discoverable (standard Linux paths or `MECAB_DICT_DIR` env var).
 
 // ── MeCab dictionary search paths ──────────────────────────────────────────
 
@@ -85,8 +90,7 @@ pub struct FuriganaResult {
 ///
 /// Returns `Err` if:
 /// - The `mecab` binary is not found on `$PATH`
-/// - No UTF-8 dictionary directory exists at any of the standard system paths
-#[cfg(target_os = "linux")]
+/// - No UTF-8 dictionary directory exists (set `MECAB_DICT_DIR` for non-standard paths)
 pub fn require_mecab() -> Result<&'static str, String> {
     use std::process::Command;
 
@@ -101,7 +105,9 @@ pub fn require_mecab() -> Result<&'static str, String> {
 
     if !mecab_ok {
         return Err(
-            "mecab binary not found — install with: sudo apt install mecab".to_string(),
+            "mecab binary not found — install with:\n  \
+             Debian/Ubuntu: sudo apt install mecab\n  \
+             macOS:         brew install mecab".to_string(),
         );
     }
 
@@ -109,22 +115,20 @@ pub fn require_mecab() -> Result<&'static str, String> {
     match find_mecab_dict() {
         Some(path) => Ok(path),
         None => Err(format!(
-            "no MeCab UTF-8 dictionary found — install with: sudo apt install mecab-naist-jdic\n\
+            "no MeCab UTF-8 dictionary found\n  \
+             Debian/Ubuntu: sudo apt install mecab-naist-jdic\n  \
+             macOS:         brew install mecab-ipadic\n  \
+             Custom path:   export MECAB_DICT_DIR=/path/to/dic\n  \
              searched: {}",
             MECAB_DICT_PATHS.join(", "),
         )),
     }
 }
 
-#[cfg(not(target_os = "linux"))]
-pub fn require_mecab() -> Result<&'static str, String> {
-    Err("MeCab integration is only supported on Linux".to_string())
-}
-
 /// Annotate Japanese text with furigana and romaji via MeCab.
 ///
 /// Returns `None` if MeCab is unavailable or the text produces no output.
-/// On non-Linux platforms, always returns `None`.
+/// Use [`require_mecab`] at startup to fail fast with a clear error.
 pub fn annotate(text: &str) -> Option<FuriganaResult> {
     let text = text.trim();
     if text.is_empty() {
@@ -147,13 +151,34 @@ pub fn annotate_furigana_only(text: &str) -> Option<FuriganaResult> {
 }
 
 /// Find the first existing MeCab UTF-8 dictionary directory, or `None`.
+///
+/// Checks `MECAB_DICT_DIR` env var first (for Homebrew, custom installs, etc.),
+/// then falls back to the standard Linux system paths.
+///
+/// ```bash
+/// # macOS / Homebrew example:
+/// export MECAB_DICT_DIR=/opt/homebrew/lib/mecab/dic/ipadic
+/// ```
 pub fn find_mecab_dict() -> Option<&'static str> {
-    for &path in MECAB_DICT_PATHS {
-        if std::path::Path::new(path).join("sys.dic").exists() {
-            return Some(path);
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<Option<&'static str>> = OnceLock::new();
+
+    *CACHED.get_or_init(|| {
+        // 1. Check env var override
+        if let Ok(dir) = std::env::var("MECAB_DICT_DIR") {
+            if std::path::Path::new(&dir).join("sys.dic").exists() {
+                return Some(Box::leak(dir.into_boxed_str()) as &'static str);
+            }
         }
-    }
-    None
+
+        // 2. Fall back to standard system paths
+        for &path in MECAB_DICT_PATHS {
+            if std::path::Path::new(path).join("sys.dic").exists() {
+                return Some(path);
+            }
+        }
+        None
+    })
 }
 
 // ── Pure helpers (work on all platforms) ────────────────────────────────────
@@ -329,9 +354,8 @@ pub fn parse_mecab_output(stdout: &str) -> Option<(String, String, Vec<Morpheme>
     }
 }
 
-// ── MeCab invocation (Linux only) ──────────────────────────────────────────
+// ── MeCab invocation ───────────────────────────────────────────────────────
 
-#[cfg(target_os = "linux")]
 fn mecab_analyze(text: &str) -> Option<(String, String, Vec<Morpheme>)> {
     use std::io::Write;
     use std::process::{Command, Stdio};
@@ -357,11 +381,6 @@ fn mecab_analyze(text: &str) -> Option<(String, String, Vec<Morpheme>)> {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     parse_mecab_output(&stdout)
-}
-
-#[cfg(not(target_os = "linux"))]
-fn mecab_analyze(_text: &str) -> Option<(String, String, Vec<Morpheme>)> {
-    None
 }
 
 // ── Kana lookup tables ─────────────────────────────────────────────────────
