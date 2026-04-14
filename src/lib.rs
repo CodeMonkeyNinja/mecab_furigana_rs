@@ -107,7 +107,7 @@ pub fn require_mecab() -> Result<&'static str, String> {
         return Err(
             "mecab binary not found — install with:\n  \
              Debian/Ubuntu: sudo apt install mecab\n  \
-             macOS:         brew install mecab".to_string(),
+             Other: install mecab and ensure it is on $PATH".to_string(),
         );
     }
 
@@ -117,7 +117,6 @@ pub fn require_mecab() -> Result<&'static str, String> {
         None => Err(format!(
             "no MeCab UTF-8 dictionary found\n  \
              Debian/Ubuntu: sudo apt install mecab-naist-jdic\n  \
-             macOS:         brew install mecab-ipadic\n  \
              Custom path:   export MECAB_DICT_DIR=/path/to/dic\n  \
              searched: {}",
             MECAB_DICT_PATHS.join(", "),
