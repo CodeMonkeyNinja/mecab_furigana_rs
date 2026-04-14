@@ -76,9 +76,9 @@ sudo apt install mecab mecab-naist-jdic
 # Arch
 pacman -S mecab mecab-naist-jdic
 
-# macOS (Homebrew)
-brew install mecab mecab-ipadic
-export MECAB_DICT_DIR=/opt/homebrew/lib/mecab/dic/ipadic
+# macOS / other: install mecab + a UTF-8 dictionary however you prefer,
+# then point the crate at your dictionary:
+export MECAB_DICT_DIR=/path/to/your/mecab/dic
 ```
 
 The crate auto-discovers dictionaries from standard Linux system paths
