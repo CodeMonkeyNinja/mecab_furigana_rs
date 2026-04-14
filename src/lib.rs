@@ -76,6 +76,51 @@ pub struct FuriganaResult {
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
+/// Check that the MeCab binary and a UTF-8 dictionary are installed.
+///
+/// Returns `Ok(dict_path)` on success.  Call this once at startup to fail
+/// fast with a clear error instead of getting silent `None`s from [`annotate`].
+///
+/// # Errors
+///
+/// Returns `Err` if:
+/// - The `mecab` binary is not found on `$PATH`
+/// - No UTF-8 dictionary directory exists at any of the standard system paths
+#[cfg(target_os = "linux")]
+pub fn require_mecab() -> Result<&'static str, String> {
+    use std::process::Command;
+
+    // 1. Check binary
+    let mecab_ok = Command::new("mecab")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if !mecab_ok {
+        return Err(
+            "mecab binary not found — install with: sudo apt install mecab".to_string(),
+        );
+    }
+
+    // 2. Check dictionary
+    match find_mecab_dict() {
+        Some(path) => Ok(path),
+        None => Err(format!(
+            "no MeCab UTF-8 dictionary found — install with: sudo apt install mecab-naist-jdic\n\
+             searched: {}",
+            MECAB_DICT_PATHS.join(", "),
+        )),
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn require_mecab() -> Result<&'static str, String> {
+    Err("MeCab integration is only supported on Linux".to_string())
+}
+
 /// Annotate Japanese text with furigana and romaji via MeCab.
 ///
 /// Returns `None` if MeCab is unavailable or the text produces no output.
@@ -687,6 +732,15 @@ EOS
     }
 
     // ── Integration (requires MeCab + dictionary) ───────────────────────
+
+    #[test]
+    fn test_require_mecab() {
+        // This test validates that MeCab + dict are installed on the test machine.
+        // If it fails, install: sudo apt install mecab mecab-naist-jdic
+        let dict = require_mecab().expect("MeCab must be installed to run integration tests");
+        assert!(!dict.is_empty());
+        assert!(std::path::Path::new(dict).join("sys.dic").exists());
+    }
 
     #[test]
     fn test_annotate_populates_fields() {
