@@ -732,42 +732,48 @@ EOS
     }
 
     // ── Integration (requires MeCab + dictionary) ───────────────────────
+    //
+    // These tests spawn the real MeCab binary and need a dictionary installed.
+    // Skipped by default (`#[ignore]`) so CI doesn't fail on bare runners.
+    //
+    //   cargo test                     # unit tests only (no MeCab needed)
+    //   cargo test -- --ignored        # integration tests only
+    //   cargo test -- --include-ignored # everything
 
     #[test]
+    #[ignore]
     fn test_require_mecab() {
-        // This test validates that MeCab + dict are installed on the test machine.
-        // If it fails, install: sudo apt install mecab mecab-naist-jdic
         let dict = require_mecab().expect("MeCab must be installed to run integration tests");
         assert!(!dict.is_empty());
         assert!(std::path::Path::new(dict).join("sys.dic").exists());
     }
 
     #[test]
+    #[ignore]
     fn test_annotate_populates_fields() {
-        if let Some(result) = annotate("食べる") {
-            assert!(!result.furigana.is_empty(), "furigana should be set");
-            assert!(!result.romaji.is_empty(), "romaji should be set");
-            assert!(!result.morphemes.is_empty(), "morphemes should be populated");
-        }
+        let result = annotate("食べる").expect("MeCab should produce output for 食べる");
+        assert!(!result.furigana.is_empty(), "furigana should be set");
+        assert!(!result.romaji.is_empty(), "romaji should be set");
+        assert!(!result.morphemes.is_empty(), "morphemes should be populated");
     }
 
     #[test]
+    #[ignore]
     fn test_annotate_furigana_only_skips_romaji() {
-        if let Some(result) = annotate_furigana_only("食べる") {
-            assert!(!result.furigana.is_empty(), "furigana should be set");
-            assert!(result.romaji.is_empty(), "romaji should be empty");
-            assert!(!result.morphemes.is_empty(), "morphemes should still be populated");
-        }
+        let result = annotate_furigana_only("食べる").expect("MeCab should produce output");
+        assert!(!result.furigana.is_empty(), "furigana should be set");
+        assert!(result.romaji.is_empty(), "romaji should be empty");
+        assert!(!result.morphemes.is_empty(), "morphemes should still be populated");
     }
 
     #[test]
+    #[ignore]
     fn test_annotate_sumomo_segmentation() {
-        // Integration test: MeCab segments the ambiguous すもももももももものうち
-        if let Some(result) = annotate("すもももももももものうち") {
-            let surfaces: Vec<&str> = result.morphemes.iter().map(|m| m.surface.as_str()).collect();
-            assert_eq!(surfaces, &["すもも", "も", "もも", "も", "もも", "の", "うち"],
-                "MeCab should segment into: すもも/も/もも/も/もも/の/うち, got: {surfaces:?}");
-        }
+        let result = annotate("すもももももももものうち")
+            .expect("MeCab should produce output for すもも sentence");
+        let surfaces: Vec<&str> = result.morphemes.iter().map(|m| m.surface.as_str()).collect();
+        assert_eq!(surfaces, &["すもも", "も", "もも", "も", "もも", "の", "うち"],
+            "MeCab should segment into: すもも/も/もも/も/もも/の/うち, got: {surfaces:?}");
     }
 
     #[test]
