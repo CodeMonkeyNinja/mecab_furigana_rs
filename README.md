@@ -75,11 +75,16 @@ sudo apt install mecab mecab-naist-jdic
 
 # Arch
 pacman -S mecab mecab-naist-jdic
+
+# macOS (Homebrew)
+brew install mecab mecab-ipadic
+export MECAB_DICT_DIR=/opt/homebrew/lib/mecab/dic/ipadic
 ```
 
-The crate auto-discovers dictionaries from standard system paths
+The crate auto-discovers dictionaries from standard Linux system paths
 (`/usr/share/mecab/dic/`, `/usr/lib/mecab/dic/`, `/var/lib/mecab/dic/`),
-preferring `naist-jdic` (richer: names, neologisms) over `ipadic-utf8`.
+preferring `naist-jdic` over `ipadic-utf8`.  For Homebrew or custom installs,
+set the `MECAB_DICT_DIR` environment variable.
 
 ## How it works
 
@@ -94,9 +99,10 @@ preferring `naist-jdic` (richer: names, neologisms) over `ipadic-utf8`.
 
 ## Platform support
 
-Full functionality on Linux.  On other platforms, `annotate()` returns `None`;
-the pure conversion helpers (`kata_to_romaji`, `kata_to_hira`, `has_kanji`,
-`parse_mecab_output`) work everywhere.
+Works on any platform where `mecab` is on `$PATH` and a dictionary is
+discoverable (standard Linux paths or `MECAB_DICT_DIR`).  The pure conversion
+helpers (`kata_to_romaji`, `kata_to_hira`, `has_kanji`, `parse_mecab_output`)
+work everywhere regardless of MeCab availability.
 
 ## Background
 
