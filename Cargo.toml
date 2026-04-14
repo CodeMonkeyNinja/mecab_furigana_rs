@@ -1,0 +1,10 @@
+[package]
+name = "mecab-furigana-rs"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "MeCab-based furigana and romaji annotation for Japanese text — no Python, no kakasi"
+repository = "https://github.com/CodeMonkeyNinja/mecab_furigana_rs"
+keywords = ["japanese", "furigana", "romaji", "mecab", "kanji"]
+categories = ["text-processing", "internationalization"]
+readme = "README.md"
