@@ -320,8 +320,14 @@ pub fn parse_mecab_output(stdout: &str) -> Option<(String, String, Vec<Morpheme>
             surface.to_string()
         };
 
-        // Furigana: annotate kanji with hiragana reading
-        if has_kanji(surface) && !reading_kata.is_empty() {
+        // Furigana: annotate kanji morphemes with bracketed readings.
+        // When MeCab supplies a reading we emit `surface[reading]`.
+        // When the morpheme contains kanji but MeCab has no reading
+        // (dictionary gap — slang/compound/proper noun not in the
+        // installed dictionary), we still emit empty brackets `surface[]`
+        // so downstream renderers can visually flag "this token couldn't
+        // be annotated" instead of silently presenting it unmodified.
+        if has_kanji(surface) {
             furigana.push_str(surface);
             furigana.push('[');
             furigana.push_str(&reading_hira);
@@ -667,6 +673,17 @@ EOS
         let output = "hello\t記号,一般,*,*,*,*\nEOS\n";
         let (furigana, _, _) = parse_mecab_output(output).unwrap();
         assert_eq!(furigana, "hello");
+    }
+
+    #[test]
+    fn test_furigana_empty_brackets_on_dictionary_gap() {
+        // Kanji-bearing surface with no reading field (synthetic — simulates a
+        // morpheme whose dictionary entry lacks a reading column).  We emit
+        // `surface[]` so the gap is visible in the rendered annotation rather
+        // than the surface being passed through unchanged.
+        let output = "知ら\t動詞,自立,*,*,五段・ラ行,未然形\nEOS\n";
+        let (furigana, _, _) = parse_mecab_output(output).unwrap();
+        assert_eq!(furigana, "知ら[]");
     }
 
     #[test]
