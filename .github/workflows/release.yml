@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MeCab
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y libmecab-dev mecab mecab-ipadic-utf8
+
+      - name: Verify version matches tag
+        run: |
+          CARGO_VERSION="v$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[0].version')"
+          TAG_VERSION="${GITHUB_REF_NAME}"
+          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "Tag $TAG_VERSION does not match Cargo.toml version $CARGO_VERSION"
+            exit 1
+          fi
+
+      - name: Run tests
+        run: cargo test --verbose
+
+      - name: Publish
+        run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
