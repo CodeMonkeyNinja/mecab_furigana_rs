@@ -28,23 +28,151 @@
 //! export MECAB_DICT_DIR=/opt/homebrew/lib/mecab/dic/ipadic
 //! ```
 //!
+//! # User dictionaries
+//!
+//! To layer additional words/readings on top of the system dictionary
+//! (rare kanji, names, neologisms), compile a CSV with `mecab-dict-index`
+//! and point `MECAB_USER_DICT` at the resulting `.dic` file.  Multiple
+//! files can be comma-separated, mirroring MeCab's own `-u` flag:
+//!
+//! ```bash
+//! export MECAB_USER_DICT=./mydict.dic
+//! export MECAB_USER_DICT=./names.dic,./neologisms.dic
+//! ```
+//!
+//! Both `MECAB_DICT_DIR` and `MECAB_USER_DICT` may also be set in a `.env`
+//! file in the process working directory.  Real environment variables
+//! always take precedence; `.env` only fills in unset ones.  See
+//! `.env.sample` in the repo for the expected format.
+//!
 //! # Platform support
 //!
 //! Works on any platform where `mecab` is on `$PATH` and a dictionary is
 //! discoverable (standard Linux paths or `MECAB_DICT_DIR` env var).
 
-// ── MeCab dictionary search paths ──────────────────────────────────────────
+// ── MeCab dictionary search ────────────────────────────────────────────────
 
-/// Standard system paths for MeCab UTF-8 dictionaries (checked in order).
-/// naist-jdic is richer (person names, neologisms); ipadic-utf8 is the standard IPA dictionary.
-const MECAB_DICT_PATHS: &[&str] = &[
-    "/usr/share/mecab/dic/naist-jdic",
-    "/usr/share/mecab/dic/ipadic-utf8",
-    "/usr/lib/mecab/dic/naist-jdic",
-    "/usr/lib/mecab/dic/ipadic-utf8",
-    "/var/lib/mecab/dic/naist-jdic",
-    "/var/lib/mecab/dic/ipadic-utf8",
+/// Standard installation roots where MeCab dictionaries live, in preference
+/// order.  `find_mecab_dict` iterates the cross product of these with
+/// [`MECAB_DICT_NAMES`].
+const MECAB_DICT_ROOTS: &[&str] = &[
+    "/usr/share/mecab/dic",        // Debian / Ubuntu (source-of-truth)
+    "/var/lib/mecab/dic",          // Debian / Ubuntu (actual storage)
+    "/usr/lib/mecab/dic",          // some package managers
+    "/usr/local/lib/mecab/dic",    // manual / source install (Linux & macOS)
+    "/opt/homebrew/lib/mecab/dic", // macOS Homebrew (Apple Silicon)
+    "/opt/local/lib/mecab/dic",    // macOS MacPorts
 ];
+
+/// Known UTF-8 dictionary directory names, in preference order.  Earlier
+/// entries beat later ones when multiple dictionaries are installed.
+///
+/// IPA POS schema is preferred because this crate's `Morpheme.pos` values
+/// reflect IPA categories.  UniDic and JUMAN dicts work too, but their POS
+/// strings differ — see README for the trade-off.
+const MECAB_DICT_NAMES: &[&str] = &[
+    // ── IPA POS schema ──────────────────────────────────────────────────
+    "mecab-ipadic-neologd", // community NEologd (largest IPA-schema coverage)
+    "ipadic-neologd",       // alternate name some installers use
+    "naist-jdic",           // NAIST jdic (Debian default)
+    "ipadic-utf8",          // IPAdic UTF-8 build (Debian)
+    "ipadic",               // UTF-8 on macOS/Homebrew, EUC-JP on Debian — charset check filters
+    // ── UniDic schema (different POS strings) ───────────────────────────
+    "mecab-unidic-neologd",
+    "unidic-neologd",
+    "unidic-cwj", // Contemporary Written Japanese build
+    "unidic",
+    // ── JUMAN schema (different POS strings) ────────────────────────────
+    "jumandic-utf8",
+    "juman-utf8", // Debian's name for the UTF-8 JUMAN build
+    "jumandic",
+];
+
+/// Return true if a `dicrc` body declares a non-UTF-8 charset (EUC-JP,
+/// Shift_JIS, CP932).  If no charset line is present, treat as UTF-8 —
+/// matches the Debian `juman-utf8` package which omits the declaration.
+///
+/// Factored out for unit testing without disk I/O.
+fn dicrc_declares_non_utf8(contents: &str) -> bool {
+    for line in contents.lines() {
+        let lower = line.trim().to_ascii_lowercase();
+        if !(lower.starts_with("charset")
+            || lower.starts_with("config-charset")
+            || lower.starts_with("dictionary-charset"))
+        {
+            continue;
+        }
+        let Some(val) = lower.split('=').nth(1) else { continue };
+        let val = val.trim();
+        if val.contains("euc") || val.contains("shift_jis") || val.contains("cp932") {
+            return true;
+        }
+    }
+    false
+}
+
+/// Quick sanity check that a candidate dictionary directory is UTF-8.
+/// Missing `dicrc` → assume UTF-8 (matches Debian `juman-utf8`).
+fn dict_is_utf8(dir: &std::path::Path) -> bool {
+    match std::fs::read_to_string(dir.join("dicrc")) {
+        Ok(contents) => !dicrc_declares_non_utf8(&contents),
+        Err(_) => true,
+    }
+}
+
+// ── .env support (zero-dep) ────────────────────────────────────────────────
+
+/// Parse `.env` file contents into a key→value map.
+///
+/// Recognises `KEY=VALUE` lines, an optional leading `export `, `#` comments,
+/// blank lines, and a single matching pair of surrounding `"` or `'` quotes
+/// on the value.  Unknown/malformed lines are skipped silently.
+fn parse_dotenv(contents: &str) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    for line in contents.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let line = line.strip_prefix("export ").unwrap_or(line);
+        let Some((key, val)) = line.split_once('=') else { continue };
+        let key = key.trim();
+        if key.is_empty() {
+            continue;
+        }
+        let mut val = val.trim();
+        if val.len() >= 2 {
+            let bytes = val.as_bytes();
+            let first = bytes[0];
+            let last = bytes[val.len() - 1];
+            if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
+                val = &val[1..val.len() - 1];
+            }
+        }
+        map.insert(key.to_string(), val.to_string());
+    }
+    map
+}
+
+/// Load `.env` from the current working directory once and cache the result.
+/// Missing file → empty map (no error).
+fn dotenv_map() -> &'static std::collections::HashMap<String, String> {
+    use std::sync::OnceLock;
+    static MAP: OnceLock<std::collections::HashMap<String, String>> = OnceLock::new();
+    MAP.get_or_init(|| {
+        std::fs::read_to_string(".env")
+            .map(|s| parse_dotenv(&s))
+            .unwrap_or_default()
+    })
+}
+
+/// Look up an env var: real process environment first, then `.env`.
+fn get_env(key: &str) -> Option<String> {
+    if let Ok(v) = std::env::var(key) {
+        return Some(v);
+    }
+    dotenv_map().get(key).cloned()
+}
 
 // ── Public types ───────────────────────────────────────────────────────────
 
@@ -112,16 +240,33 @@ pub fn require_mecab() -> Result<&'static str, String> {
     }
 
     // 2. Check dictionary
-    match find_mecab_dict() {
-        Some(path) => Ok(path),
-        None => Err(format!(
+    let dict = match find_mecab_dict() {
+        Some(path) => path,
+        None => return Err(format!(
             "no MeCab UTF-8 dictionary found\n  \
              Debian/Ubuntu: sudo apt install mecab-naist-jdic\n  \
              Custom path:   export MECAB_DICT_DIR=/path/to/dic\n  \
-             searched: {}",
-            MECAB_DICT_PATHS.join(", "),
+             searched roots: {}\n  \
+             searched names: {}",
+            MECAB_DICT_ROOTS.join(", "),
+            MECAB_DICT_NAMES.join(", "),
         )),
+    };
+
+    // 3. If MECAB_USER_DICT is set, every listed file must exist.
+    if let Some(udic) = find_mecab_user_dicts() {
+        for path in udic.split(',') {
+            if !std::path::Path::new(path).is_file() {
+                return Err(format!(
+                    "MECAB_USER_DICT references missing file: {path}\n  \
+                     Build with: mecab-dict-index -d {dict} -u {path} \
+                     -f UTF-8 -t UTF-8 <source.csv>"
+                ));
+            }
+        }
     }
+
+    Ok(dict)
 }
 
 /// Annotate Japanese text with furigana and romaji via MeCab.
@@ -163,20 +308,60 @@ pub fn find_mecab_dict() -> Option<&'static str> {
     static CACHED: OnceLock<Option<&'static str>> = OnceLock::new();
 
     *CACHED.get_or_init(|| {
-        // 1. Check env var override
-        if let Ok(dir) = std::env::var("MECAB_DICT_DIR") {
+        // 1. Check env var override (env or .env).  No charset filter here —
+        //    the user knows what they pointed at; we just verify it's a dict.
+        if let Some(dir) = get_env("MECAB_DICT_DIR") {
             if std::path::Path::new(&dir).join("sys.dic").exists() {
                 return Some(Box::leak(dir.into_boxed_str()) as &'static str);
             }
         }
 
-        // 2. Fall back to standard system paths
-        for &path in MECAB_DICT_PATHS {
-            if std::path::Path::new(path).join("sys.dic").exists() {
-                return Some(path);
+        // 2. Probe roots × names, filtering out non-UTF-8 candidates.
+        //    Names-first ordering: a NEologd install anywhere beats a
+        //    naist-jdic install elsewhere — if you bothered installing
+        //    NEologd, you want it.
+        for name in MECAB_DICT_NAMES {
+            for root in MECAB_DICT_ROOTS {
+                let path = format!("{root}/{name}");
+                let p = std::path::Path::new(&path);
+                if p.join("sys.dic").exists() && dict_is_utf8(p) {
+                    return Some(Box::leak(path.into_boxed_str()) as &'static str);
+                }
             }
         }
         None
+    })
+}
+
+/// User dictionary file(s) from `MECAB_USER_DICT` (env or `.env`).
+///
+/// Accepts a single path or a comma-separated list, matching MeCab's own
+/// `-u a.dic,b.dic` syntax.  Returns the cleaned, comma-joined string ready
+/// to pass to `mecab -u`, or `None` if the variable is unset/empty.
+///
+/// File existence is **not** validated here — use [`require_mecab`] for that.
+///
+/// ```bash
+/// export MECAB_USER_DICT=./mydict.dic
+/// export MECAB_USER_DICT=./names.dic,./neologisms.dic
+/// ```
+pub fn find_mecab_user_dicts() -> Option<&'static str> {
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<Option<&'static str>> = OnceLock::new();
+
+    *CACHED.get_or_init(|| {
+        let raw = get_env("MECAB_USER_DICT")?;
+        let joined = raw
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(",");
+        if joined.is_empty() {
+            None
+        } else {
+            Some(Box::leak(joined.into_boxed_str()) as &'static str)
+        }
     })
 }
 
@@ -366,11 +551,12 @@ fn mecab_analyze(text: &str) -> Option<(String, String, Vec<Morpheme>)> {
     use std::process::{Command, Stdio};
 
     let dict = find_mecab_dict()?;
-    let mut child = Command::new("mecab")
-        .arg("-r")
-        .arg("/dev/null")
-        .arg("-d")
-        .arg(dict)
+    let mut cmd = Command::new("mecab");
+    cmd.arg("-r").arg("/dev/null").arg("-d").arg(dict);
+    if let Some(udic) = find_mecab_user_dicts() {
+        cmd.arg("-u").arg(udic);
+    }
+    let mut child = cmd
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -815,5 +1001,81 @@ EOS
     fn test_annotate_empty_text() {
         assert!(annotate("").is_none());
         assert!(annotate("   ").is_none());
+    }
+
+    // ── .env parser ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_dotenv_basic() {
+        let map = parse_dotenv("FOO=bar\nBAZ=qux\n");
+        assert_eq!(map.get("FOO").map(String::as_str), Some("bar"));
+        assert_eq!(map.get("BAZ").map(String::as_str), Some("qux"));
+    }
+
+    #[test]
+    fn test_parse_dotenv_comments_blanks_export() {
+        let src = "\
+# comment line
+\n
+export MECAB_DICT_DIR=/opt/homebrew/lib/mecab/dic/ipadic
+  MECAB_USER_DICT = ./mydict.dic  # trailing-space tolerance
+";
+        let map = parse_dotenv(src);
+        assert_eq!(
+            map.get("MECAB_DICT_DIR").map(String::as_str),
+            Some("/opt/homebrew/lib/mecab/dic/ipadic"),
+        );
+        // Inline `#` is intentionally NOT treated as a comment — dotenv
+        // implementations disagree on this; we keep it simple and literal.
+        assert!(map.contains_key("MECAB_USER_DICT"));
+    }
+
+    #[test]
+    fn test_parse_dotenv_quoted_values() {
+        let map = parse_dotenv("A=\"with spaces\"\nB='single quoted'\nC=\"mixed'\n");
+        assert_eq!(map.get("A").map(String::as_str), Some("with spaces"));
+        assert_eq!(map.get("B").map(String::as_str), Some("single quoted"));
+        // Unmatched quote pair → left as-is.
+        assert_eq!(map.get("C").map(String::as_str), Some("\"mixed'"));
+    }
+
+    #[test]
+    fn test_parse_dotenv_skips_malformed() {
+        let map = parse_dotenv("no_equals_sign\n=missing_key\nGOOD=ok\n");
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.get("GOOD").map(String::as_str), Some("ok"));
+    }
+
+    // ── dicrc charset filter ────────────────────────────────────────────
+
+    #[test]
+    fn test_dicrc_utf8_passes() {
+        assert!(!dicrc_declares_non_utf8("config-charset = UTF-8\n"));
+        assert!(!dicrc_declares_non_utf8("dictionary-charset = utf-8\n"));
+    }
+
+    #[test]
+    fn test_dicrc_euc_jp_rejected() {
+        assert!(dicrc_declares_non_utf8("config-charset = EUC-JP\n"));
+        assert!(dicrc_declares_non_utf8("config-charset=eucjp\n"));
+    }
+
+    #[test]
+    fn test_dicrc_shift_jis_rejected() {
+        assert!(dicrc_declares_non_utf8("charset = Shift_JIS\n"));
+        assert!(dicrc_declares_non_utf8("charset = CP932\n"));
+    }
+
+    #[test]
+    fn test_dicrc_no_charset_line_is_ok() {
+        // Debian's juman-utf8 omits the charset declaration — treat as UTF-8.
+        assert!(!dicrc_declares_non_utf8("cost-factor = 800\nbos-feature = BOS/EOS\n"));
+        assert!(!dicrc_declares_non_utf8(""));
+    }
+
+    #[test]
+    fn test_dicrc_mixed_lines_rejected_on_any_non_utf8() {
+        let src = "cost-factor = 800\nconfig-charset = EUC-JP\nbos-feature = BOS/EOS\n";
+        assert!(dicrc_declares_non_utf8(src));
     }
 }

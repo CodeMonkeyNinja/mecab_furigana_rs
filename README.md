@@ -81,10 +81,63 @@ pacman -S mecab mecab-naist-jdic
 export MECAB_DICT_DIR=/path/to/your/mecab/dic
 ```
 
-The crate auto-discovers dictionaries from standard Linux system paths
-(`/usr/share/mecab/dic/`, `/usr/lib/mecab/dic/`, `/var/lib/mecab/dic/`),
-preferring `naist-jdic` over `ipadic-utf8`.  For Homebrew or custom installs,
-set the `MECAB_DICT_DIR` environment variable.
+The crate auto-discovers dictionaries by probing the cross product of:
+
+- **Roots**: `/usr/share/mecab/dic`, `/var/lib/mecab/dic`, `/usr/lib/mecab/dic`,
+  `/usr/local/lib/mecab/dic`, `/opt/homebrew/lib/mecab/dic` (macOS Homebrew),
+  `/opt/local/lib/mecab/dic` (MacPorts)
+- **Names** (preference order): `mecab-ipadic-neologd`, `ipadic-neologd`,
+  `naist-jdic`, `ipadic-utf8`, `ipadic`, `mecab-unidic-neologd`,
+  `unidic-neologd`, `unidic-cwj`, `unidic`, `jumandic-utf8`, `juman-utf8`,
+  `jumandic`
+
+Names-first iteration means a NEologd install anywhere beats a `naist-jdic`
+elsewhere.  Each candidate is sanity-checked against its `dicrc` and skipped
+if it declares EUC-JP / Shift_JIS / CP932 (so the bare `ipadic` directory,
+which is UTF-8 on macOS Homebrew but EUC-JP on Debian, only matches where
+it's actually UTF-8).
+
+For any path not on that list, set `MECAB_DICT_DIR` directly.
+
+> **POS schema caveat**: IPAdic / NAIST jdic / NEologd share the IPA POS
+> tagset, which is what this crate's `Morpheme.pos` values reflect.  UniDic
+> and JUMAN dicts use different POS category strings (top-level categories
+> like `名詞`/`動詞` mostly still appear, but sub-detail differs) — they
+> work, but downstream code that pattern-matches on `pos_detail` may need
+> adjusting.
+
+### User dictionaries (rare kanji, names, neologisms)
+
+When MeCab can't find a word, you can layer a user dictionary on top of
+the system dict by setting `MECAB_USER_DICT` to a compiled `.dic` file
+(or a comma-separated list, matching `mecab -u a.dic,b.dic`):
+
+```bash
+export MECAB_USER_DICT=./mydict.dic
+export MECAB_USER_DICT=./names.dic,./neologisms.dic
+```
+
+Build the `.dic` once with the `mecab-dict-index` tool that ships with MeCab:
+
+```bash
+# CSV row: surface,left-id,right-id,cost,POS,POS1,POS2,POS3,conj-form,conj-type,base,reading-kata,pron-kata
+# (use 0,0 for left/right IDs and a small cost — MeCab will fill them in)
+echo '兎角,0,0,5000,名詞,固有名詞,*,*,*,*,兎角,トカク,トカク' > mydict.csv
+
+mecab-dict-index -d "$MECAB_DICT_DIR" -u mydict.dic \
+                 -f UTF-8 -t UTF-8 mydict.csv
+```
+
+`mecab-dict-index` is a sibling binary to `mecab` itself, so it's available
+on every platform where MeCab is installed (Debian: `/usr/lib/mecab/...`;
+Homebrew: under `libexec/mecab/`; Windows: in the MeCab install `bin/`).
+
+### `.env` support
+
+Both `MECAB_DICT_DIR` and `MECAB_USER_DICT` may also be set in a `.env`
+file in the process working directory.  Real environment variables always
+take precedence; `.env` only fills in unset ones.  See `.env.sample` for
+the expected format.  `.env` itself is gitignored.
 
 ## How it works
 
