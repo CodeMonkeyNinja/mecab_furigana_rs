@@ -1,5 +1,10 @@
 # Furigana Segment Parser + HTML Span Renderer
 
+> **About the name:** "Ruby" here is the CSS/HTML rubric for annotation text
+> (furigana readings above kanji), not the Ruby programming language. See
+> [`README.md`](../README.md#output-formats) for the full etymology — British
+> 5.5pt type → Japanese ルビ → W3C "ruby".
+
 ## Motivation
 
 The crate currently emits a flat bracket string (e.g. `知ら[しら]ない天井[てんじょう]だ`). Downstream consumers like [lenzu](https://github.com/CodeMonkeyNinja/lenzu) need to render furigana as small hiragana **above** each kanji in an HTML overlay. This requires:

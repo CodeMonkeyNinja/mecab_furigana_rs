@@ -28,7 +28,16 @@ Suitable for terminal output, log files, plain-text display, or any
 environment without HTML/CSS.
 
 **2. HTML span markup** (Web) — `furigana_to_html()` produces accessible
-CSS-grid ruby display suitable for browsers and rich UIs:
+CSS-grid ruby display[^ruby] suitable for browsers and rich UIs:
+
+[^ruby]: **Ruby** in CSS/HTML refers to small annotation text placed above
+    base characters — the standard web mechanism for furigana. Despite
+    sounding like the Ruby programming language, its origin is British
+    typography: a *ruby* was a 5.5 pt type size used for sidenotes. Japanese
+    publishers borrowed the term as **ルビ (rubi)** for furigana annotations,
+    and the W3C later adopted "ruby" from Japanese typography into the HTML
+    standard. If it had been translated directly from ルビ it might have been
+    "rubi" — apologies for the confusion!
 
 ```rust
 let html = mecab_furigana_rs::furigana_to_html("知ら[しら]ない天井[てんじょう]だ");

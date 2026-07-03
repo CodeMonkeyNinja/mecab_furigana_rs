@@ -888,7 +888,11 @@ fn html_escape(s: &str) -> String {
     result
 }
 
-/// Render segments as HTML span markup for CSS-based ruby display.
+/// Render segments as HTML span markup for CSS-based ruby annotation display.
+///
+/// "Ruby" here = small annotation text above base characters — the standard
+/// web convention for furigana, from British 5.5pt type → Japanese ルビ →
+/// W3C "ruby" — not the Ruby programming language.
 ///
 /// The output uses `<span class="furigana">` as a CSS grid container
 /// with two children:
