@@ -14,6 +14,38 @@ assert_eq!(result.furigana, "知ら[しら]ない天井[てんじょう]だ");
 assert!(result.romaji.contains("tenjou"));
 ```
 
+### Output formats
+
+The crate offers two rendering targets from the same annotated data:
+
+**1. Bracket text** (TUI / TTY / CLI) — `annotate()` embeds readings inline:
+
+```
+知ら[しら]ない天井[てんじょう]だ
+```
+
+Suitable for terminal output, log files, plain-text display, or any
+environment without HTML/CSS.
+
+**2. HTML span markup** (Web) — `furigana_to_html()` produces accessible
+CSS-grid ruby display suitable for browsers and rich UIs:
+
+```rust
+let html = mecab_furigana_rs::furigana_to_html("知ら[しら]ない天井[てんじょう]だ");
+// → <span class="furigana"><span class="read">しら</span><span class="base">知ら</span></span>ない<span class="furigana"><span class="read">てんじょう</span><span class="base">天井</span></span>だ
+```
+
+The downstream CSS contract expects:
+
+```css
+.furigana { display: inline-grid; place-items: center; grid-template-rows: auto auto; }
+.furigana .read { font-size: 0.55em; line-height: 1; grid-row: 1; white-space: nowrap; }
+.furigana .base { grid-row: 2; }
+```
+
+See [`furigana-demo.html`](./furigana-demo.html) in the repo root for a
+live preview you can open in any browser.
+
 ### Word segmentation
 
 MeCab segments ambiguous kana strings into individual morphemes.  The classic
@@ -60,6 +92,9 @@ assert_eq!(mecab_furigana_rs::kata_to_hira("テンジョウ"), "てんじょう"
 
 // Kanji detection
 assert!(mecab_furigana_rs::has_kanji("天井"));
+
+// Bracket-string → HTML furigana renderer (no MeCab needed)
+let html = mecab_furigana_rs::furigana_to_html("知ら[しら]ない天井[てんじょう]だ");
 
 // Parse raw MeCab output (for testing or custom pipelines)
 let (furigana, romaji, morphemes) = mecab_furigana_rs::parse_mecab_output(mecab_stdout).unwrap();

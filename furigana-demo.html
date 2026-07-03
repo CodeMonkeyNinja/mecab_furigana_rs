@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Furigana HTML Demo</title>
+<style>
+  body {
+    font-family: "Hiragino Sans", "Noto Sans JP", sans-serif;
+    font-size: 1.2rem;
+    line-height: 1.6;
+    max-width: 52rem;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    background: #fafafa;
+    color: #222;
+  }
+  h1 { font-size: 1.3rem; margin-bottom: 0.25rem; color: #555; }
+  .subtitle { color: #888; font-size: 0.85rem; margin-bottom: 1.5rem; }
+
+  /* ─── NORMAL RENDER ─── */
+  .furigana {
+    display: inline-block;
+    position: relative;
+    text-align: center;
+    vertical-align: bottom;
+    line-height: 1;
+  }
+  .furigana .read {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    text-align: center;
+    font-size: 0.55em;
+    line-height: 1;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .furigana .base {
+    display: inline-block;
+    line-height: 1.2;
+  }
+
+  table { width: 100%; border-collapse: collapse; margin-bottom: 2rem; }
+  th { text-align: left; font-size: 0.72rem; color: #999; font-weight: normal; padding: 0.3rem 0.5rem; border-bottom: 1px solid #ddd; }
+  td { padding: 0.4rem 0.5rem; border-bottom: 1px solid #eee; vertical-align: top; }
+  td.or { font-size: 1.2rem; white-space: nowrap; width: 14%; }
+  td.br { font-family: "SF Mono", "Consolas", monospace; font-size: 0.78rem; white-space: nowrap; width: 20%; color: #666; }
+  td.ht { font-size: 1.2rem; white-space: nowrap; width: 20%; }
+
+  /* ─── Segment pills ─── */
+  .segments { display: flex; flex-wrap: nowrap; gap: 4px; align-items: center; }
+  .seg {
+    display: inline-flex; flex-direction: column; align-items: center;
+    border-radius: 4px; padding: 3px 6px; font-size: 0.85rem;
+    border: 1px solid #ddd;
+    position: relative;
+  }
+  .seg.kanji { background: #fff0f8; border-color: #e0b0c8; }
+  .seg.other { background: #f0f8f0; border-color: #b0d0b0; }
+  .seg .label { font-size: 0.6rem; color: #999; margin-bottom: 1px; }
+  .seg .content { white-space: nowrap; display: flex; flex-direction: column; align-items: center; }
+  .seg .content .read-txt { color: #c33; font-size: 0.7rem; }
+  .seg .content .base-txt { color: #33c; }
+  .seg .content .other-txt { color: #282; }
+  .seg .arrow { color: #999; font-size: 0.65rem; margin: 0 2px; }
+</style>
+</head>
+<body>
+
+<h1>Furigana HTML Demo</h1>
+<p class="subtitle">Pipeline: <code>original text → annotate() → furigana_to_html()</code></p>
+
+<table>
+<thead>
+<tr>
+  <th>ORIGINAL</th>
+  <th>BRACKET</th>
+  <th>RENDERED</th>
+  <th>SEGMENTS (parse_furigana)</th>
+</tr>
+</thead>
+<tbody>
+
+<!-- ─── Row 1: 知らない天井だ ─── -->
+<tr>
+  <td class="or">知らない天井だ</td>
+  <td class="br">知ら[しら]ない天井[てんじょう]だ</td>
+  <td class="ht"><span class="furigana"><span class="read">し</span><span class="base">知</span></span>らない<span class="furigana"><span class="read">てんじょう</span><span class="base">天井</span></span>だ</td>
+  <td><div class="segments">
+    <div class="seg kanji"><div class="label">KANJI</div><div class="content"><span class="read-txt">し</span><span class="arrow">↑</span><span class="base-txt">知</span></div></div>
+    <div class="seg other"><div class="label">OTHER</div><div class="content"><span class="other-txt">らない</span></div></div>
+    <div class="seg kanji"><div class="label">KANJI</div><div class="content"><span class="read-txt">てんじょう</span><span class="arrow">↑</span><span class="base-txt">天井</span></div></div>
+    <div class="seg other"><div class="label">OTHER</div><div class="content"><span class="other-txt">だ</span></div></div>
+  </div></td>
+</tr>
+
+<!-- ─── Row 2: 食べ物 ─── -->
+<tr>
+  <td class="or">食べ物</td>
+  <td class="br">食[た]べ物[もの]</td>
+  <td class="ht"><span class="furigana"><span class="read">た</span><span class="base">食</span></span>べ<span class="furigana"><span class="read">もの</span><span class="base">物</span></span></td>
+  <td><div class="segments">
+    <div class="seg kanji"><div class="label">KANJI</div><div class="content"><span class="read-txt">た</span><span class="arrow">↑</span><span class="base-txt">食</span></div></div>
+    <div class="seg other"><div class="label">OTHER</div><div class="content"><span class="other-txt">べ</span></div></div>
+    <div class="seg kanji"><div class="label">KANJI</div><div class="content"><span class="read-txt">もの</span><span class="arrow">↑</span><span class="base-txt">物</span></div></div>
+  </div></td>
+</tr>
+
+<!-- ─── Row 3: 東京大阪 ─── -->
+<tr>
+  <td class="or">東京大阪</td>
+  <td class="br">東京[とうきょう]大阪[おおさか]</td>
+  <td class="ht"><span class="furigana"><span class="read">とうきょう</span><span class="base">東京</span></span><span class="furigana"><span class="read">おおさか</span><span class="base">大阪</span></span></td>
+  <td><div class="segments">
+    <div class="seg kanji"><div class="label">KANJI</div><div class="content"><span class="read-txt">とうきょう</span><span class="arrow">↑</span><span class="base-txt">東京</span></div></div>
+    <div class="seg kanji"><div class="label">KANJI</div><div class="content"><span class="read-txt">おおさか</span><span class="arrow">↑</span><span class="base-txt">大阪</span></div></div>
+  </div></td>
+</tr>
+
+<!-- ─── Row 4: 日本語 (no brackets) ─── -->
+<tr>
+  <td class="or">日本語</td>
+  <td class="br">日本語</td>
+  <td class="ht">日本語</td>
+  <td><div class="segments">
+    <div class="seg other"><div class="label">OTHER</div><div class="content"><span class="other-txt">日本語</span></div></div>
+  </div></td>
+</tr>
+
+<!-- ─── Row 5: 漢字 (empty reading) ─── -->
+<tr>
+  <td class="or">漢字</td>
+  <td class="br">漢字[]</td>
+  <td class="ht"><span class="furigana"><span class="read"></span><span class="base">漢字</span></span></td>
+  <td><div class="segments">
+    <div class="seg kanji"><div class="label">KANJI</div><div class="content"><span class="read-txt">(empty)</span><span class="arrow">↑</span><span class="base-txt">漢字</span></div></div>
+  </div></td>
+</tr>
+
+<!-- ─── Row 6: 最初の仲間 ─── -->
+<tr>
+  <td class="or">最初の仲間</td>
+  <td class="br">最初[さいしょ]の仲間[なかま]</td>
+  <td class="ht"><span class="furigana"><span class="read">さいしょ</span><span class="base">最初</span></span>の<span class="furigana"><span class="read">なかま</span><span class="base">仲間</span></span></td>
+  <td><div class="segments">
+    <div class="seg kanji"><div class="label">KANJI</div><div class="content"><span class="read-txt">さいしょ</span><span class="arrow">↑</span><span class="base-txt">最初</span></div></div>
+    <div class="seg other"><div class="label">OTHER</div><div class="content"><span class="other-txt">の</span></div></div>
+    <div class="seg kanji"><div class="label">KANJI</div><div class="content"><span class="read-txt">なかま</span><span class="arrow">↑</span><span class="base-txt">仲間</span></div></div>
+  </div></td>
+</tr>
+
+<!-- ─── Row 7: 守る (okurigana) ─── -->
+<tr>
+  <td class="or">守る</td>
+  <td class="br">守っ[まもっ]</td>
+  <td class="ht"><span class="furigana"><span class="read">まも</span><span class="base">守</span></span>っ</td>
+  <td><div class="segments">
+    <div class="seg kanji"><div class="label">KANJI</div><div class="content"><span class="read-txt">まも</span><span class="arrow">↑</span><span class="base-txt">守</span></div></div>
+    <div class="seg other"><div class="label">OTHER</div><div class="content"><span class="other-txt">っ</span></div></div>
+  </div></td>
+</tr>
+
+</tbody>
+</table>
+
+<p class="subtitle">
+<b>Legend</b> — <span style="color:#c33">reading</span> <span style="color:#999">↑</span> <span style="color:#33c">kanji</span> = KANJI segment (reading above base) |
+<span style="color:#282">green</span> = OTHER segment (plain text) |
+<code>KANJI</code> = pink pill, <code>OTHER</code> = green pill
+</p>
+
+</body>
+</html>

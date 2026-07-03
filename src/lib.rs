@@ -102,7 +102,9 @@ fn dicrc_declares_non_utf8(contents: &str) -> bool {
         {
             continue;
         }
-        let Some(val) = lower.split('=').nth(1) else { continue };
+        let Some(val) = lower.split('=').nth(1) else {
+            continue;
+        };
         let val = val.trim();
         if val.contains("euc") || val.contains("shift_jis") || val.contains("cp932") {
             return true;
@@ -135,7 +137,9 @@ fn parse_dotenv(contents: &str) -> std::collections::HashMap<String, String> {
             continue;
         }
         let line = line.strip_prefix("export ").unwrap_or(line);
-        let Some((key, val)) = line.split_once('=') else { continue };
+        let Some((key, val)) = line.split_once('=') else {
+            continue;
+        };
         let key = key.trim();
         if key.is_empty() {
             continue;
@@ -232,25 +236,26 @@ pub fn require_mecab() -> Result<&'static str, String> {
         .unwrap_or(false);
 
     if !mecab_ok {
-        return Err(
-            "mecab binary not found — install with:\n  \
+        return Err("mecab binary not found — install with:\n  \
              Debian/Ubuntu: sudo apt install mecab\n  \
-             Other: install mecab and ensure it is on $PATH".to_string(),
-        );
+             Other: install mecab and ensure it is on $PATH"
+            .to_string());
     }
 
     // 2. Check dictionary
     let dict = match find_mecab_dict() {
         Some(path) => path,
-        None => return Err(format!(
-            "no MeCab UTF-8 dictionary found\n  \
+        None => {
+            return Err(format!(
+                "no MeCab UTF-8 dictionary found\n  \
              Debian/Ubuntu: sudo apt install mecab-naist-jdic\n  \
              Custom path:   export MECAB_DICT_DIR=/path/to/dic\n  \
              searched roots: {}\n  \
              searched names: {}",
-            MECAB_DICT_ROOTS.join(", "),
-            MECAB_DICT_NAMES.join(", "),
-        )),
+                MECAB_DICT_ROOTS.join(", "),
+                MECAB_DICT_NAMES.join(", "),
+            ))
+        }
     };
 
     // 3. If MECAB_USER_DICT is set, every listed file must exist.
@@ -279,7 +284,11 @@ pub fn annotate(text: &str) -> Option<FuriganaResult> {
         return None;
     }
     let (furigana, romaji, morphemes) = mecab_analyze(text)?;
-    Some(FuriganaResult { furigana, romaji, morphemes })
+    Some(FuriganaResult {
+        furigana,
+        romaji,
+        morphemes,
+    })
 }
 
 /// Annotate text, returning furigana only (skips romaji generation cost).
@@ -291,7 +300,11 @@ pub fn annotate_furigana_only(text: &str) -> Option<FuriganaResult> {
         return None;
     }
     let (furigana, _, morphemes) = mecab_analyze(text)?;
-    Some(FuriganaResult { furigana, romaji: String::new(), morphemes })
+    Some(FuriganaResult {
+        furigana,
+        romaji: String::new(),
+        morphemes,
+    })
 }
 
 /// Find the first existing MeCab UTF-8 dictionary directory, or `None`.
@@ -536,10 +549,7 @@ pub fn parse_mecab_output(stdout: &str) -> Option<(String, String, Vec<Morpheme>
     if furigana.is_empty() {
         None
     } else {
-        let romaji = romaji_parts.join(" ")
-            .replace("  ", " ")
-            .trim()
-            .to_string();
+        let romaji = romaji_parts.join(" ").replace("  ", " ").trim().to_string();
         Some((furigana, romaji, morphemes))
     }
 }
@@ -669,8 +679,21 @@ fn digraph_romaji(first: char, second: char) -> Option<&'static str> {
     // Only match when second char is a small kana (ャュョァィゥェォ)
     if !matches!(
         second,
-        'ャ' | 'ュ' | 'ョ' | 'ゃ' | 'ゅ' | 'ょ' | 'ァ' | 'ィ' | 'ゥ' | 'ェ' | 'ォ'
-        | 'ぁ' | 'ぃ' | 'ぅ' | 'ぇ' | 'ぉ'
+        'ャ' | 'ュ'
+            | 'ョ'
+            | 'ゃ'
+            | 'ゅ'
+            | 'ょ'
+            | 'ァ'
+            | 'ィ'
+            | 'ゥ'
+            | 'ェ'
+            | 'ォ'
+            | 'ぁ'
+            | 'ぃ'
+            | 'ぅ'
+            | 'ぇ'
+            | 'ぉ'
     ) {
         return None;
     }
@@ -737,6 +760,177 @@ fn digraph_romaji(first: char, second: char) -> Option<&'static str> {
     })
 }
 
+// ── Furigana Segment Parser + HTML Renderer ────────────────────────────────
+
+/// A single annotated segment of Japanese text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Segment {
+    /// A kanji character or sequence with its reading.
+    Kanji {
+        text: String,
+        reading: Option<String>,
+    },
+    /// Non-kanji text (kana, punctuation, ASCII, whitespace).
+    Other(String),
+}
+
+fn is_cjk(c: char) -> bool {
+    matches!(c, '\u{4E00}'..='\u{9FFF}' | '\u{3400}'..='\u{4DBF}')
+}
+
+fn trim_trailing_okurigana(text: &str, reading: &str) -> (String, String, String) {
+    let text_chars: Vec<char> = text.chars().collect();
+    let reading_chars: Vec<char> = reading.chars().collect();
+    let mut t = text_chars.len();
+    let mut r = reading_chars.len();
+    while t > 0 && r > 0 {
+        let tc = text_chars[t - 1];
+        let rc = reading_chars[r - 1];
+        if !is_cjk(tc) && tc == rc {
+            t -= 1;
+            r -= 1;
+        } else {
+            break;
+        }
+    }
+    let kanji_text: String = text_chars[..t].iter().collect();
+    let kanji_reading: String = reading_chars[..r].iter().collect();
+    let okurigana: String = text_chars[t..].iter().collect();
+    (kanji_text, kanji_reading, okurigana)
+}
+
+fn push_other(segments: &mut Vec<Segment>, chunk: &str) {
+    if chunk.is_empty() {
+        return;
+    }
+    if let Some(Segment::Other(ref mut existing)) = segments.last_mut() {
+        existing.push_str(chunk);
+    } else {
+        segments.push(Segment::Other(chunk.to_string()));
+    }
+}
+
+/// Parse a bracketed furigana string into structured segments.
+///
+/// "知ら[しら]ない天井[てんじょう]だ"
+/// → [
+///     Kanji { text: "知", reading: Some("し") },
+///     Other("らない"),
+///     Kanji { text: "天井", reading: Some("てんじょう") },
+///     Other("だ"),
+///   ]
+/// Trailing okurigana matching the reading is split off so the HTML
+/// renderer only puts furigana over the kanji portion.
+pub fn parse_furigana(input: &str) -> Vec<Segment> {
+    let mut segments: Vec<Segment> = Vec::new();
+    let mut chars = input.chars().peekable();
+
+    while let Some(&c) = chars.peek() {
+        if is_cjk(c) {
+            let mut text = String::new();
+            let mut found_bracket = false;
+            while let Some(&c) = chars.peek() {
+                if c == '[' {
+                    found_bracket = true;
+                    break;
+                }
+                text.push(c);
+                chars.next();
+            }
+
+            if found_bracket {
+                chars.next();
+                let mut reading = String::new();
+                loop {
+                    match chars.next() {
+                        Some(']') => break,
+                        Some(c) => reading.push(c),
+                        None => break,
+                    }
+                }
+                let (kanji_text, kanji_reading, okurigana) =
+                    trim_trailing_okurigana(&text, &reading);
+                segments.push(Segment::Kanji {
+                    text: kanji_text,
+                    reading: Some(kanji_reading),
+                });
+                push_other(&mut segments, &okurigana);
+            } else {
+                push_other(&mut segments, &text);
+            }
+        } else {
+            let mut other = String::new();
+            while let Some(&c) = chars.peek() {
+                if is_cjk(c) {
+                    break;
+                }
+                other.push(c);
+                chars.next();
+            }
+            push_other(&mut segments, &other);
+        }
+    }
+
+    segments
+}
+
+fn html_escape(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => result.push_str("&amp;"),
+            '<' => result.push_str("&lt;"),
+            '>' => result.push_str("&gt;"),
+            '"' => result.push_str("&quot;"),
+            _ => result.push(c),
+        }
+    }
+    result
+}
+
+/// Render segments as HTML span markup for CSS-based ruby display.
+///
+/// The output uses `<span class="furigana">` as a CSS grid container
+/// with two children:
+/// - `<span class="read">` — the reading (small text above)
+/// - `<span class="base">` — the kanji (baseline text)
+///
+/// Non-kanji segments pass through as-is (HTML-escaped).
+pub fn segments_to_html(segments: &[Segment]) -> String {
+    let mut html = String::with_capacity(segments.len() * 64);
+    for segment in segments {
+        match segment {
+            Segment::Kanji {
+                text,
+                reading: Some(reading),
+            } => {
+                html.push_str("<span class=\"furigana\"><span class=\"read\">");
+                html.push_str(&html_escape(reading));
+                html.push_str("</span><span class=\"base\">");
+                html.push_str(&html_escape(text));
+                html.push_str("</span></span>");
+            }
+            Segment::Kanji {
+                text,
+                reading: None,
+            } => {
+                html.push_str(&html_escape(text));
+            }
+            Segment::Other(s) => {
+                html.push_str(&html_escape(s));
+            }
+        }
+    }
+    html
+}
+
+/// Convenience wrapper: parse + render in one call.
+///
+/// Equivalent to `segments_to_html(&parse_furigana(input))`.
+pub fn furigana_to_html(input: &str) -> String {
+    segments_to_html(&parse_furigana(input))
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -792,8 +986,14 @@ EOS
         let (furigana, _, _) = parse_mecab_output(MECAB_SHIRANAI_TENJOU).unwrap();
         assert!(furigana.contains("知ら[しら]"), "got: {furigana}");
         assert!(furigana.contains("天井[てんじょう]"), "got: {furigana}");
-        assert!(!furigana.contains("ない["), "kana should not be bracketed: {furigana}");
-        assert!(!furigana.contains("だ["), "kana should not be bracketed: {furigana}");
+        assert!(
+            !furigana.contains("ない["),
+            "kana should not be bracketed: {furigana}"
+        );
+        assert!(
+            !furigana.contains("だ["),
+            "kana should not be bracketed: {furigana}"
+        );
     }
 
     #[test]
@@ -836,8 +1036,14 @@ EOS
         assert!(furigana.contains("仲間[なかま]"), "got: {furigana}");
         assert!(furigana.contains("背中[せなか]"), "got: {furigana}");
         assert!(furigana.contains("守っ[まもっ]"), "got: {furigana}");
-        assert!(!furigana.contains("オレ["), "katakana should not be bracketed: {furigana}");
-        assert!(!furigana.contains("やる["), "hiragana should not be bracketed: {furigana}");
+        assert!(
+            !furigana.contains("オレ["),
+            "katakana should not be bracketed: {furigana}"
+        );
+        assert!(
+            !furigana.contains("やる["),
+            "hiragana should not be bracketed: {furigana}"
+        );
     }
 
     #[test]
@@ -939,16 +1145,19 @@ EOS
     fn test_segmentation_sumomo() {
         let (_, _, morphemes) = parse_mecab_output(MECAB_SUMOMO).unwrap();
         let surfaces: Vec<&str> = morphemes.iter().map(|m| m.surface.as_str()).collect();
-        assert_eq!(surfaces, &["すもも", "も", "もも", "も", "もも", "の", "うち"]);
+        assert_eq!(
+            surfaces,
+            &["すもも", "も", "もも", "も", "もも", "の", "うち"]
+        );
     }
 
     #[test]
     fn test_segmentation_sumomo_pos() {
         let (_, _, morphemes) = parse_mecab_output(MECAB_SUMOMO).unwrap();
-        assert_eq!(morphemes[0].pos, "名詞");  // すもも = noun (plum)
-        assert_eq!(morphemes[1].pos, "助詞");  // も = particle (also)
-        assert_eq!(morphemes[2].pos, "名詞");  // もも = noun (peach)
-        assert_eq!(morphemes[5].pos, "助詞");  // の = particle (of)
+        assert_eq!(morphemes[0].pos, "名詞"); // すもも = noun (plum)
+        assert_eq!(morphemes[1].pos, "助詞"); // も = particle (also)
+        assert_eq!(morphemes[2].pos, "名詞"); // もも = noun (peach)
+        assert_eq!(morphemes[5].pos, "助詞"); // の = particle (of)
         assert_eq!(morphemes[6].surface, "うち");
     }
 
@@ -975,7 +1184,10 @@ EOS
         let result = annotate("食べる").expect("MeCab should produce output for 食べる");
         assert!(!result.furigana.is_empty(), "furigana should be set");
         assert!(!result.romaji.is_empty(), "romaji should be set");
-        assert!(!result.morphemes.is_empty(), "morphemes should be populated");
+        assert!(
+            !result.morphemes.is_empty(),
+            "morphemes should be populated"
+        );
     }
 
     #[test]
@@ -984,7 +1196,10 @@ EOS
         let result = annotate_furigana_only("食べる").expect("MeCab should produce output");
         assert!(!result.furigana.is_empty(), "furigana should be set");
         assert!(result.romaji.is_empty(), "romaji should be empty");
-        assert!(!result.morphemes.is_empty(), "morphemes should still be populated");
+        assert!(
+            !result.morphemes.is_empty(),
+            "morphemes should still be populated"
+        );
     }
 
     #[test]
@@ -992,9 +1207,16 @@ EOS
     fn test_annotate_sumomo_segmentation() {
         let result = annotate("すもももももももものうち")
             .expect("MeCab should produce output for すもも sentence");
-        let surfaces: Vec<&str> = result.morphemes.iter().map(|m| m.surface.as_str()).collect();
-        assert_eq!(surfaces, &["すもも", "も", "もも", "も", "もも", "の", "うち"],
-            "MeCab should segment into: すもも/も/もも/も/もも/の/うち, got: {surfaces:?}");
+        let surfaces: Vec<&str> = result
+            .morphemes
+            .iter()
+            .map(|m| m.surface.as_str())
+            .collect();
+        assert_eq!(
+            surfaces,
+            &["すもも", "も", "もも", "も", "もも", "の", "うち"],
+            "MeCab should segment into: すもも/も/もも/も/もも/の/うち, got: {surfaces:?}"
+        );
     }
 
     #[test]
@@ -1069,7 +1291,9 @@ export MECAB_DICT_DIR=/opt/homebrew/lib/mecab/dic/ipadic
     #[test]
     fn test_dicrc_no_charset_line_is_ok() {
         // Debian's juman-utf8 omits the charset declaration — treat as UTF-8.
-        assert!(!dicrc_declares_non_utf8("cost-factor = 800\nbos-feature = BOS/EOS\n"));
+        assert!(!dicrc_declares_non_utf8(
+            "cost-factor = 800\nbos-feature = BOS/EOS\n"
+        ));
         assert!(!dicrc_declares_non_utf8(""));
     }
 
@@ -1077,5 +1301,199 @@ export MECAB_DICT_DIR=/opt/homebrew/lib/mecab/dic/ipadic
     fn test_dicrc_mixed_lines_rejected_on_any_non_utf8() {
         let src = "cost-factor = 800\nconfig-charset = EUC-JP\nbos-feature = BOS/EOS\n";
         assert!(dicrc_declares_non_utf8(src));
+    }
+
+    // ── Furigana segment parser ──────────────────────────────────────────
+
+    #[test]
+    fn test_parse_basic() {
+        let result = parse_furigana("食[た]べる");
+        assert_eq!(
+            result,
+            [
+                Segment::Kanji {
+                    text: "食".into(),
+                    reading: Some("た".into())
+                },
+                Segment::Other("べる".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_multiple() {
+        let result = parse_furigana("食[た]べ物[もの]");
+        assert_eq!(
+            result,
+            [
+                Segment::Kanji {
+                    text: "食".into(),
+                    reading: Some("た".into())
+                },
+                Segment::Other("べ".into()),
+                Segment::Kanji {
+                    text: "物".into(),
+                    reading: Some("もの".into())
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_no_brackets() {
+        assert_eq!(parse_furigana("日本語"), [Segment::Other("日本語".into())]);
+    }
+
+    #[test]
+    fn test_parse_empty() {
+        let result: Vec<Segment> = parse_furigana("");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parse_bracket_without_kanji() {
+        assert_eq!(
+            parse_furigana("[hello]"),
+            [Segment::Other("[hello]".into())]
+        );
+    }
+
+    #[test]
+    fn test_parse_empty_reading() {
+        assert_eq!(
+            parse_furigana("漢字[]"),
+            [Segment::Kanji {
+                text: "漢字".into(),
+                reading: Some("".into())
+            }]
+        );
+    }
+
+    #[test]
+    fn test_parse_consecutive() {
+        assert_eq!(
+            parse_furigana("東京[とうきょう]大阪[おおさか]"),
+            [
+                Segment::Kanji {
+                    text: "東京".into(),
+                    reading: Some("とうきょう".into())
+                },
+                Segment::Kanji {
+                    text: "大阪".into(),
+                    reading: Some("おおさか".into())
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_kanji_without_reading() {
+        assert_eq!(parse_furigana("東京"), [Segment::Other("東京".into())]);
+    }
+
+    #[test]
+    fn test_parse_mixed_cjk_non_cjk() {
+        assert_eq!(
+            parse_furigana("abc123!@#"),
+            [Segment::Other("abc123!@#".into())]
+        );
+    }
+
+    // ── HTML renderer ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_render_basic() {
+        let segments = [
+            Segment::Kanji {
+                text: "食".into(),
+                reading: Some("た".into()),
+            },
+            Segment::Other("べる".into()),
+        ];
+        assert_eq!(
+            segments_to_html(&segments),
+            "<span class=\"furigana\"><span class=\"read\">た</span><span class=\"base\">食</span></span>べる"
+        );
+    }
+
+    #[test]
+    fn test_render_empty_segments() {
+        assert_eq!(segments_to_html(&[]), "");
+    }
+
+    #[test]
+    fn test_render_kanji_no_reading() {
+        let segments = [Segment::Other("東京".into())];
+        assert_eq!(segments_to_html(&segments), "東京");
+    }
+
+    #[test]
+    fn test_render_empty_reading() {
+        let segments = [Segment::Kanji {
+            text: "漢字".into(),
+            reading: Some("".into()),
+        }];
+        assert_eq!(
+            segments_to_html(&segments),
+            "<span class=\"furigana\"><span class=\"read\"></span><span class=\"base\">漢字</span></span>"
+        );
+    }
+
+    #[test]
+    fn test_render_html_escaping() {
+        let segments = [Segment::Other("<script>".into())];
+        assert_eq!(segments_to_html(&segments), "&lt;script&gt;");
+    }
+
+    // ── Convenience wrapper smoke test ───────────────────────────────────
+
+    #[test]
+    fn test_smoke_furigana_to_html() {
+        assert_eq!(
+            furigana_to_html("食[た]べ物[もの]"),
+            "<span class=\"furigana\"><span class=\"read\">た</span><span class=\"base\">食</span></span>べ<span class=\"furigana\"><span class=\"read\">もの</span><span class=\"base\">物</span></span>"
+        );
+    }
+
+    // ── Okurigana trimming ──────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_trims_trailing_okurigana() {
+        let segments = parse_furigana("知ら[しら]");
+        assert_eq!(
+            segments,
+            [
+                Segment::Kanji {
+                    text: "知".into(),
+                    reading: Some("し".into())
+                },
+                Segment::Other("ら".into())
+            ],
+            "trailing matching kana 'ら' should be split from both text and reading"
+        );
+    }
+
+    #[test]
+    fn test_okurigana_full_sentence() {
+        let segments = parse_furigana("知ら[しら]ない天井[てんじょう]だ");
+        assert_eq!(
+            segments,
+            [
+                Segment::Kanji {
+                    text: "知".into(),
+                    reading: Some("し".into())
+                },
+                Segment::Other("らない".into()),
+                Segment::Kanji {
+                    text: "天井".into(),
+                    reading: Some("てんじょう".into())
+                },
+                Segment::Other("だ".into())
+            ]
+        );
+        assert_eq!(
+            furigana_to_html("知ら[しら]ない天井[てんじょう]だ"),
+            "<span class=\"furigana\"><span class=\"read\">し</span><span class=\"base\">知</span></span>らない<span class=\"furigana\"><span class=\"read\">てんじょう</span><span class=\"base\">天井</span></span>だ"
+        );
     }
 }
