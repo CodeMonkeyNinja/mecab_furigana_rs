@@ -32,8 +32,12 @@ CSS-grid ruby display suitable for browsers and rich UIs:
 
 ```rust
 let html = mecab_furigana_rs::furigana_to_html("知ら[しら]ない天井[てんじょう]だ");
-// → <span class="furigana"><span class="read">しら</span><span class="base">知ら</span></span>ない<span class="furigana"><span class="read">てんじょう</span><span class="base">天井</span></span>だ
+// → <span class="furigana"><span class="read">し</span><span class="base">知</span></span>らない<span class="furigana"><span class="read">てんじょう</span><span class="base">天井</span></span>だ
 ```
+
+> **Visual preview**: Markdown cannot render furigana inline. Open
+> [`furigana-demo.html`](./furigana-demo.html) in your browser to see
+> the actual CSS-grid rendering with a side-by-side pipeline debug view.
 
 The downstream CSS contract expects:
 
@@ -42,9 +46,6 @@ The downstream CSS contract expects:
 .furigana .read { font-size: 0.55em; line-height: 1; grid-row: 1; white-space: nowrap; }
 .furigana .base { grid-row: 2; }
 ```
-
-See [`furigana-demo.html`](./furigana-demo.html) in the repo root for a
-live preview you can open in any browser.
 
 ### Word segmentation
 
