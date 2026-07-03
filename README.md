@@ -54,8 +54,12 @@ let html = mecab_furigana_rs::furigana_to_html("知ら[しら]ない天井[て�
 > two-row gap that CSS-grid spans create.  The crate used CSS-grid spans
 > in v0.3.0 but switched to `<ruby>` in v0.4.0 for correct inline layout.
 
-> **Visual preview**: Open [`furigana-demo.html`](./furigana-demo.html) in
-> your browser to see the rendering.
+> **Visual preview**: See the screenshot below (GitHub renders `.html` files as
+> raw source, so a rendered PNG is provided for convenience). Open
+> [`furigana-demo.html`](./docs/furigana-demo.html) in your browser to
+> interact with the live version.
+>
+> ![Furigana demo screenshot](./docs/furigana-demo.png)
 
 ### Word segmentation
 
