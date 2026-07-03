@@ -27,34 +27,35 @@ The crate offers two rendering targets from the same annotated data:
 Suitable for terminal output, log files, plain-text display, or any
 environment without HTML/CSS.
 
-**2. HTML span markup** (Web) — `furigana_to_html()` produces accessible
-CSS-grid ruby display[^ruby] suitable for browsers and rich UIs:
+**2. HTML `<ruby>` markup** — `furigana_to_html()` produces W3C-native
+[`<ruby>`] annotations[^ruby] — the HTML element designed specifically for
+furigana/ruby text.  Browsers render readings above their kanji by default,
+no CSS required:
 
-[^ruby]: **Ruby** in CSS/HTML refers to small annotation text placed above
+```rust
+let html = mecab_furigana_rs::furigana_to_html("知ら[しら]ない天井[てんじょう]だ");
+// → <ruby>知<rt>し</rt></ruby>らない<ruby>天井<rt>てんじょう</rt></ruby>だ
+```
+
+[^ruby]: **Ruby** in HTML/CSS refers to small annotation text placed above
     base characters — the standard web mechanism for furigana. Despite
     sounding like the Ruby programming language, its origin is British
     typography: a *ruby* was a 5.5 pt type size used for sidenotes. Japanese
     publishers borrowed the term as **ルビ (rubi)** for furigana annotations,
     and the W3C later adopted "ruby" from Japanese typography into the HTML
-    standard. If it had been translated directly from ルビ it might have been
+    standard as the [`<ruby>`] element, with [`<rt>`] for the reading text.
+    If it had been translated directly from ルビ it might have been
     "rubi" — apologies for the confusion!
 
-```rust
-let html = mecab_furigana_rs::furigana_to_html("知ら[しら]ない天井[てんじょう]だ");
-// → <span class="furigana"><span class="read">し</span><span class="base">知</span></span>らない<span class="furigana"><span class="read">てんじょう</span><span class="base">天井</span></span>だ
-```
+> **Why `<ruby>` instead of CSS-grid spans?** The `<ruby>` element was
+> designed by the W3C specifically for this use case — small annotations
+> above CJK characters.  It keeps readings pinned directly above their
+> kanji baseline, so text flows naturally on a single line without the
+> two-row gap that CSS-grid spans create.  The crate used CSS-grid spans
+> in v0.3.0 but switched to `<ruby>` in v0.4.0 for correct inline layout.
 
-> **Visual preview**: Markdown cannot render furigana inline. Open
-> [`furigana-demo.html`](./furigana-demo.html) in your browser to see
-> the actual CSS-grid rendering with a side-by-side pipeline debug view.
-
-The downstream CSS contract expects:
-
-```css
-.furigana { display: inline-grid; place-items: center; grid-template-rows: auto auto; }
-.furigana .read { font-size: 0.55em; line-height: 1; grid-row: 1; white-space: nowrap; }
-.furigana .base { grid-row: 2; }
-```
+> **Visual preview**: Open [`furigana-demo.html`](./furigana-demo.html) in
+> your browser to see the rendering.
 
 ### Word segmentation
 
@@ -103,7 +104,7 @@ assert_eq!(mecab_furigana_rs::kata_to_hira("テンジョウ"), "てんじょう"
 // Kanji detection
 assert!(mecab_furigana_rs::has_kanji("天井"));
 
-// Bracket-string → HTML furigana renderer (no MeCab needed)
+// Bracket-string → HTML `<ruby>` renderer (no MeCab needed)
 let html = mecab_furigana_rs::furigana_to_html("知ら[しら]ない天井[てんじょう]だ");
 
 // Parse raw MeCab output (for testing or custom pipelines)

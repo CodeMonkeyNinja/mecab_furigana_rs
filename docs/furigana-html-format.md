@@ -103,43 +103,29 @@ Scan left to right:
 ### HTML output format
 
 ```html
-<span class="furigana"><span class="read">た</span><span class="base">食</span></span>べ
+<ruby>食<rt>た</rt></ruby>べ
 ```
 
-- Kanji with reading: wrapped in `<span class="furigana">` containing `.read` and `.base` spans.
+- Kanji with reading: wrapped in [`<ruby>`] element with [`<rt>`] annotation.
 - Kanji without reading: rendered as plain text (same as `Other`).
 - `Other` segments: HTML-escaped via `html_escape()` (escape `<`, `>`, `&`, `"`).
 
-### CSS contract
+### CSS contract (optional)
 
-The downstream CSS expects (in lenzu's `styles.css`):
+Browsers render `<ruby>` with built-in default styling. No CSS is required,
+but the following tweaks improve appearance:
 
 ```css
-.furigana {
-  display: inline-grid;
-  place-items: center;
-  grid-template-rows: auto auto;
-}
-.furigana .read {
-  font-size: 0.55em;
-  line-height: 1;
-  grid-row: 1;
-  white-space: nowrap;
-}
-.furigana .base {
-  grid-row: 2;
-}
+rt { font-size: 0.55em; }
 ```
-
-This class naming is part of the public contract and must remain stable.
 
 ### Examples (input → HTML)
 
 | Input | Output |
 |---|---|
-| `食[た]べ物[もの]` | `<span class="furigana"><span class="read">た</span><span class="base">食</span></span>べ<span class="furigana"><span class="read">もの</span><span class="base">物</span></span>` |
+| `食[た]べ物[もの]` | `<ruby>食<rt>た</rt></ruby>べ<ruby>物<rt>もの</rt></ruby>` |
 | `日本語` | `日本語` |
-| `漢字[]` | `<span class="furigana"><span class="read"></span><span class="base">漢字</span></span>` |
+| `漢字[]` | `<ruby>漢字<rt></rt></ruby>` |
 | `abc[]123` | `abc[]123` (bracket after non-kanji → literal) |
 
 ## No-dependency constraint

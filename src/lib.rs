@@ -888,18 +888,22 @@ fn html_escape(s: &str) -> String {
     result
 }
 
-/// Render segments as HTML span markup for CSS-based ruby annotation display.
+/// Render segments as HTML [`<ruby>`] elements with [`<rt>`] annotations —
+/// the W3C-standard markup for furigana / ruby annotations.
 ///
-/// "Ruby" here = small annotation text above base characters — the standard
-/// web convention for furigana, from British 5.5pt type → Japanese ルビ →
-/// W3C "ruby" — not the Ruby programming language.
+/// Each kanji segment with a reading becomes:
+/// ```html
+/// <ruby>食<rt>た</rt></ruby>
+/// ```
 ///
-/// The output uses `<span class="furigana">` as a CSS grid container
-/// with two children:
-/// - `<span class="read">` — the reading (small text above)
-/// - `<span class="base">` — the kanji (baseline text)
+/// Kanji without a known reading, and non-kanji text, pass through as
+/// HTML-escaped plain text.
 ///
-/// Non-kanji segments pass through as-is (HTML-escaped).
+/// Downstream CSS (optional) for styling:
+/// ```css
+/// ruby { ruby-align: center; }
+/// rt { font-size: 0.55em; }
+/// ```
 pub fn segments_to_html(segments: &[Segment]) -> String {
     let mut html = String::with_capacity(segments.len() * 64);
     for segment in segments {
@@ -908,11 +912,11 @@ pub fn segments_to_html(segments: &[Segment]) -> String {
                 text,
                 reading: Some(reading),
             } => {
-                html.push_str("<span class=\"furigana\"><span class=\"read\">");
-                html.push_str(&html_escape(reading));
-                html.push_str("</span><span class=\"base\">");
+                html.push_str("<ruby>");
                 html.push_str(&html_escape(text));
-                html.push_str("</span></span>");
+                html.push_str("<rt>");
+                html.push_str(&html_escape(reading));
+                html.push_str("</rt></ruby>");
             }
             Segment::Kanji {
                 text,
@@ -1416,7 +1420,7 @@ export MECAB_DICT_DIR=/opt/homebrew/lib/mecab/dic/ipadic
         ];
         assert_eq!(
             segments_to_html(&segments),
-            "<span class=\"furigana\"><span class=\"read\">た</span><span class=\"base\">食</span></span>べる"
+            "<ruby>食<rt>た</rt></ruby>べる"
         );
     }
 
@@ -1437,10 +1441,7 @@ export MECAB_DICT_DIR=/opt/homebrew/lib/mecab/dic/ipadic
             text: "漢字".into(),
             reading: Some("".into()),
         }];
-        assert_eq!(
-            segments_to_html(&segments),
-            "<span class=\"furigana\"><span class=\"read\"></span><span class=\"base\">漢字</span></span>"
-        );
+        assert_eq!(segments_to_html(&segments), "<ruby>漢字<rt></rt></ruby>");
     }
 
     #[test]
@@ -1455,7 +1456,7 @@ export MECAB_DICT_DIR=/opt/homebrew/lib/mecab/dic/ipadic
     fn test_smoke_furigana_to_html() {
         assert_eq!(
             furigana_to_html("食[た]べ物[もの]"),
-            "<span class=\"furigana\"><span class=\"read\">た</span><span class=\"base\">食</span></span>べ<span class=\"furigana\"><span class=\"read\">もの</span><span class=\"base\">物</span></span>"
+            "<ruby>食<rt>た</rt></ruby>べ<ruby>物<rt>もの</rt></ruby>"
         );
     }
 
@@ -1497,7 +1498,7 @@ export MECAB_DICT_DIR=/opt/homebrew/lib/mecab/dic/ipadic
         );
         assert_eq!(
             furigana_to_html("知ら[しら]ない天井[てんじょう]だ"),
-            "<span class=\"furigana\"><span class=\"read\">し</span><span class=\"base\">知</span></span>らない<span class=\"furigana\"><span class=\"read\">てんじょう</span><span class=\"base\">天井</span></span>だ"
+            "<ruby>知<rt>し</rt></ruby>らない<ruby>天井<rt>てんじょう</rt></ruby>だ"
         );
     }
 }
