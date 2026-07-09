@@ -8,6 +8,11 @@ dictionary-accurate readings at ~5 ms per invocation.
 
 ## Usage
 
+```toml
+[dependencies]
+mecab-furigana-rs = "1"
+```
+
 ```rust
 let result = mecab_furigana_rs::annotate("知らない天井だ").unwrap();
 assert_eq!(result.furigana, "知ら[しら]ない天井[てんじょう]だ");
