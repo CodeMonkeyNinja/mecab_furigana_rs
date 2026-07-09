@@ -218,6 +218,10 @@ Due to past difficulties integrating [Kakasi](https://github.com/HidekiAI/kakasi
 as a library, this crate takes the simpler approach of shelling out to the MeCab
 CLI (which users pre-install alongside dictionaries).
 
+## Dog-fooded in production
+
+This crate is a core dependency of [Lenzu](https://github.com/CodeMonkeyNinja/lenzu) — a transparent OCR lens overlay for Linux desktop. It is pulled from crates.io and used at runtime for furigana and romaji annotation of OCR results.
+
 ## License
 
 - This crate: MIT
